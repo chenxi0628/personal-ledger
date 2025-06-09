@@ -828,13 +828,17 @@ bool Widget::checkDataIntegrity()
 // ================ 辅助功能：数据压缩 ================
 void Widget::compressData()
 {
-    // 合并相同日期和备注的记录
+    // 保存原始记录数量
+    int originalCount = allRecords.size();
+
+    // 合并相同日期、备注和类型的记录
     QList<AccountRecord> compressed;
 
     for (const AccountRecord &record : allRecords) {
         bool found = false;
 
         for (AccountRecord &comp : compressed) {
+            // 检查日期、备注和收支类型是否相同
             if (comp.date == record.date &&
                 comp.note == record.note &&
                 comp.isIncome == record.isIncome) {
@@ -849,16 +853,23 @@ void Widget::compressData()
         }
     }
 
-    // 更新记录并刷新显示
-    if (compressed.size() < allRecords.size()) {
+    // 计算实际压缩的记录数
+    int compressedCount = originalCount - compressed.size();
+
+    // 如果有记录被压缩
+    if (compressedCount > 0) {
+        // 更新记录
         allRecords = compressed;
         filteredRecords = allRecords;
+
+        // 刷新表格
         refreshTable();
 
+        // 显示压缩信息
         QMessageBox::information(
             this,
             "数据压缩",
-            QString("压缩了 %1 条重复记录").arg(allRecords.size() - compressed.size())
+            QString("压缩了 %1 条重复记录").arg(compressedCount)
             );
     } else {
         QMessageBox::information(

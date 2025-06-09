@@ -1,61 +1,97 @@
-#ifndef WIDGET_H          // 防止头文件重复包含（预编译保护）
+#ifndef WIDGET_H
 #define WIDGET_H
 
-#include <QWidget>        // 包含Qt基础窗口类头文件
-#include <QList>          // 包含Qt列表容器头文件（用于存储数据）
-#include <QDate>          // 包含Qt日期类头文件
-#include <QTableWidgetItem> // 包含表格项类头文件
+#include <QWidget>
+#include <QList>
+#include <QDate>
+#include <QTableWidgetItem>
+#include <QCloseEvent>
+#include <QFile>
+#include <QTextStream>
+#include <QMessageBox>
+#include <QDebug>
+#include <QMetaType>
+#include <QMenu>
+#include <QInputDialog>
+#include <QFileDialog>
+#include <QDateTime>
+#include <QPalette>
+#include <QBrush>
+#include <QColor>
+#include <QHeaderView>
+#include <QSizePolicy>
 
-// Qt命名空间声明（避免与其他库命名冲突）
 QT_BEGIN_NAMESPACE
-namespace Ui { class Widget; } // 声明UI设计器生成的类（自动生成，无需手动编写）
+namespace Ui { class Widget; }
 QT_END_NAMESPACE
 
-// 定义收支记录结构体（存储单笔收支数据）
+// 定义收支记录结构体
 struct AccountRecord {
-    bool isIncome;    // 收支类型：true=收入，false=支出
-    double amount;    // 金额（双精度浮点数）
-    QDate date;       // 日期（使用Qt的QDate类，支持日期运算）
-    QString note;     // 备注（使用Qt的QString类，支持Unicode）
+    bool isIncome;  // 是否为收入
+    double amount;  // 金额
+    QDate date;     // 日期
+    QString note;   // 备注信息
 };
-// 告诉Qt元对象系统这个结构体存在（用于信号槽传递自定义类型）
+
+// 注册自定义类型用于信号槽传递
 Q_DECLARE_METATYPE(AccountRecord)
 
-// 前置声明：操作符重载（用于将结构体写入/读取文件）
-QDataStream &operator<<(QDataStream &out, const AccountRecord &record);
-QDataStream &operator>>(QDataStream &in, AccountRecord &record);
+// 操作符重载
+QDataStream &operator<<(QDataStream &out, const AccountRecord &v);
+QDataStream &operator>>(QDataStream &in, AccountRecord &v);
 
-// 主窗口类（继承自QWidget，所有UI组件的基类）
 class Widget : public QWidget
 {
-    Q_OBJECT // 必须添加！启用Qt元对象系统（信号槽、属性系统等）
+    Q_OBJECT
 
 public:
-    // 构造函数（parent参数用于指定父组件，实现组件层次管理）
     explicit Widget(QWidget *parent = nullptr);
-    // 析构函数（清理资源）
     ~Widget();
 
-private slots: // 槽函数（用于接收信号，必须声明在private slots或public slots下）
-    // 以下是自动关联的槽函数（Qt根据UI设计器中的对象名自动连接信号）
-    void on_incomeButton_clicked();   // 收入按钮点击信号的处理函数
-    void on_expenseButton_clicked();  // 支出按钮点击信号的处理函数
-    void on_filterButton_clicked();   // 筛选按钮点击信号的处理函数
-    void on_saveButton_clicked();     // 保存按钮点击信号的处理函数
-    void on_loadButton_clicked();     // 加载按钮点击信号的处理函数
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
+private slots:
+    void on_incomeButton_clicked();
+    void on_expenseButton_clicked();
+    void on_filterButton_clicked();
+    void on_saveButton_clicked();
+    void on_loadButton_clicked();
+    void on_exportButton_clicked();
+
+    void on_categoryStatsButton_clicked();
+    void on_compressButton_clicked();
+    void on_restoreButton_clicked();
+
+    void showRecordContextMenu(const QPoint &pos);
+    void deleteRecord(int row);
+    void editRecord(int row);
 
 private:
-    Ui::Widget *ui; // 指向UI设计器生成的界面对象（通过ui->访问界面组件）
+    Ui::Widget *ui;
 
-    // 数据存储容器
-    QList<AccountRecord> allRecords;      // 存储所有收支记录（动态数组）
-    QList<AccountRecord> filteredRecords; // 存储筛选后的记录（用于表格显示）
+    QList<AccountRecord> allRecords;      // 所有收支记录
+    QList<AccountRecord> filteredRecords; // 筛选后的记录
 
-    // 私有成员函数（仅在类内部使用）
-    void refreshTable();   // 刷新表格显示
-    void updateSummary();  // 更新统计信息（总收入/支出/余额）
-    void clearInputs();    // 清空输入框
-    bool validateInput();  // 验证输入数据有效性
+    void refreshTable();        // 刷新表格显示
+    void updateSummary();       // 更新统计信息
+    void clearInputs();         // 清空输入框
+    bool validateInput();       // 验证输入有效性
+
+    void loadAutoBackup(); // 添加自动备份加载函数声明
+    void createAutoBackup(); // 添加自动备份创建函数声明
+    void logOperation(const QString &action);
+    void saveToFile(const QString &fileName);
+    void showCategoryStats(); // 添加分类统计函数声明
+    void loadFromFile(const QString &fileName);
+
+    bool checkDataIntegrity(); // 添加数据完整性检查函数声明
+
+    // 数据管理功能
+    void compressData(); // 数据压缩函数
+    QString formatCurrency(double amount); // 金额格式化函数
+    void restoreBackup(); // 恢复备份功能
+
 };
 
 #endif // WIDGET_H

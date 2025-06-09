@@ -1,231 +1,915 @@
-#include "widget.h"         // 包含主窗口头文件
-#include "ui_widget.h"      // 包含UI设计器生成的头文件（自动生成，无需手动编写）
-#include <QFile>          // 文件操作类
-#include <QTextStream>    // 文本流类（用于文件读写）
-#include <QMessageBox>    // 消息框类（用于提示用户）
-#include <QDebug>         // 调试输出类（用于开发阶段打印信息）
-#include <QMetaType>      // 元类型系统（注册自定义类型）
+#include "widget.h"
+#include "ui_widget.h"
 
-// ================= 操作符重载实现（用于文件序列化） =================
-// 将AccountRecord对象写入数据流（二进制格式）
-QT_BEGIN_NAMESPACE
+// 操作符重载实现
 QDataStream &operator<<(QDataStream &out, const AccountRecord &v) {
-    // 按顺序写入结构体成员（必须与读取顺序一致！）
-    return out << v.isIncome << v.amount << v.date << v.note;
+    return out << v.isIncome
+               << v.amount
+               << v.date
+               << v.note;
 }
 
-// 从数据流读取AccountRecord对象（二进制格式）
 QDataStream &operator>>(QDataStream &in, AccountRecord &v) {
-    // 按顺序读取结构体成员（必须与写入顺序一致！）
-    return in >> v.isIncome >> v.amount >> v.date >> v.note;
+    return in >> v.isIncome
+           >> v.amount
+           >> v.date
+           >> v.note;
 }
-QT_END_NAMESPACE
 
-// ================= 构造函数（初始化界面和数据） =================
-Widget::Widget(QWidget *parent)
-    : QWidget(parent)          // 调用父类构造函数
-    , ui(new Ui::Widget)       // 创建UI对象
+// ================ 扩展功能：操作日志 ================
+void Widget::logOperation(const QString &action)
 {
-    ui->setupUi(this);         // 初始化UI（从widget.ui文件加载界面布局）
+    // 打开日志文件
+    QFile logFile("operations.log");
 
-    // 注册自定义类型（否则信号槽无法传递AccountRecord对象）
+    if (logFile.open(QIODevice::Append | QIODevice::Text)) {
+        // 写入日志条目
+        QTextStream out(&logFile);
+        out << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss")
+            << " - " << action << "\n";
+
+        // 关闭文件
+        logFile.close();
+    }
+}
+
+// 自动备份加载函数实现
+void Widget::loadAutoBackup()
+{
+    // 检查自动备份文件是否存在
+    QFile file("autobackup.dat");
+
+    if (file.exists() && file.open(QIODevice::ReadOnly)) {
+        // 从备份文件加载数据
+        QDataStream in(&file);
+        in >> allRecords;
+        file.close();
+
+        // 更新筛选记录并刷新表格
+        filteredRecords = allRecords;
+        refreshTable();
+
+        // 记录操作日志
+        logOperation("加载自动备份数据");
+    }
+}
+
+// 构造函数实现
+Widget::Widget(QWidget *parent)
+    : QWidget(parent)
+    , ui(new Ui::Widget)
+{
+    // 设置UI
+    ui->setupUi(this);
+
+    // 注册自定义类型用于信号槽传递
     qRegisterMetaType<AccountRecord>("AccountRecord");
 
-    // ================= UI初始化 =================
-    // 设置日期选择框的默认值
-    ui->dateEdit->setDate(QDate::currentDate());       // 当前日期
-    ui->startDateEdit->setDate(QDate::currentDate().addMonths(-1)); // 一个月前
-    ui->endDateEdit->setDate(QDate::currentDate());     // 当前日期
+    // ================ UI初始化 ================
 
-    // 配置表格控件（QTableWidget）
-    QStringList headers = {"序号", "类型", "金额", "日期", "备注"};
-    ui->recordTable->setColumnCount(5);                // 设置列数
-    ui->recordTable->setHorizontalHeaderLabels(headers);// 设置表头文字
-    // 让最后一列（备注）自动拉伸填充剩余空间
-    ui->recordTable->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
+    // 设置默认日期
+    ui->dateEdit->setDate(QDate::currentDate());
 
-    // 设置窗口大小策略为“可扩展”（窗口可随内容自动缩放）
-    this->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    // 设置筛选日期范围（默认为近一个月）
+    ui->startDateEdit->setDate(QDate::currentDate().addMonths(-1));
+    ui->endDateEdit->setDate(QDate::currentDate());
 
-    // ================= 信号槽连接（手动连接） =================
-    // 清除筛选按钮点击时，恢复所有记录并刷新表格
-    // 使用Lambda表达式简化代码（C++11特性，需在.pro文件中添加CONFIG += c++17）
-    connect(ui->clearFilterButton, &QPushButton::clicked, [this](){
-        filteredRecords = allRecords; // 筛选记录 = 所有记录
-        refreshTable();                // 刷新表格显示
-    });
+    // 配置表格控件
+    QStringList headers;
+    headers << "序号"
+            << "类型"
+            << "金额"
+            << "日期"
+            << "备注";
+
+    ui->recordTable->setColumnCount(5);
+    ui->recordTable->setHorizontalHeaderLabels(headers);
+
+    // 设置最后一列自动拉伸以填充剩余空间
+    ui->recordTable->horizontalHeader()->setSectionResizeMode(
+        4,
+        QHeaderView::Stretch
+        );
+
+    // 启用右键菜单功能
+    ui->recordTable->setContextMenuPolicy(Qt::CustomContextMenu);
+
+    // 连接右键菜单请求信号到槽函数
+    connect(
+        ui->recordTable,
+        &QTableWidget::customContextMenuRequested,
+        this,
+        &Widget::showRecordContextMenu
+        );
+
+    // 启用双击编辑功能
+    connect(
+        ui->recordTable,
+        &QTableWidget::cellDoubleClicked,
+        this,
+        &Widget::editRecord
+        );
+
+    // 设置窗口大小策略
+    this->setSizePolicy(
+        QSizePolicy::Expanding,
+        QSizePolicy::Expanding
+        );
+
+    // ================ 信号槽连接 ================
+
+    // 连接清除筛选按钮点击事件
+    connect(
+        ui->clearFilterButton,
+        &QPushButton::clicked,
+        [this]() {
+            // 清除筛选，显示所有记录
+            filteredRecords = allRecords;
+            refreshTable();
+
+            // 记录操作日志
+            logOperation("清除筛选条件，显示全部记录");
+        }
+        );
+
+    // 程序启动时加载自动备份数据
+    loadAutoBackup();
 }
 
-// 析构函数（释放UI资源）
+// 自动备份创建函数实现
+void Widget::createAutoBackup()
+{
+    // 如果没有记录则不备份
+    if (allRecords.isEmpty()) {
+        return;
+    }
+
+    // 创建自动备份文件
+    QFile file("autobackup.dat");
+
+    if (file.open(QIODevice::WriteOnly)) {
+        QDataStream out(&file);
+        out << allRecords;
+        file.close();
+    }
+}
+
+// 析构函数实现（添加自动备份）
 Widget::~Widget()
 {
-    delete ui; // 释放UI设计器生成的对象（自动生成的组件会被递归删除）
+    // 程序退出前自动备份数据
+    createAutoBackup();
+
+    // 释放UI资源
+    delete ui;
 }
 
-// ================= 核心功能：收入按钮处理 =================
+// ================ 收入按钮处理 ================
 void Widget::on_incomeButton_clicked()
 {
-    if(!validateInput()) return; // 验证输入，失败则返回
+    // 验证输入有效性
+    if (!validateInput()) {
+        return;
+    }
 
-    AccountRecord record;         // 创建收支记录对象
-    record.isIncome = true;       // 标记为收入
-    record.amount = ui->amountEdit->text().toDouble(); // 转换金额（字符串→double）
-    record.date = ui->dateEdit->date(); // 获取日期
-    record.note = ui->noteEdit->text().trimmed(); // 获取备注并去除首尾空格
-
-    allRecords.append(record);     // 添加到所有记录列表
-    filteredRecords = allRecords;  // 更新筛选列表（显示全部）
-    refreshTable();                // 刷新表格
-    clearInputs();                 // 清空输入框
-}
-
-// ================= 核心功能：支出按钮处理（逻辑与收入类似） =================
-void Widget::on_expenseButton_clicked()
-{
-    if(!validateInput()) return;
-
+    // 创建新的收入记录
     AccountRecord record;
-    record.isIncome = false;      // 标记为支出
+    record.isIncome = true;
     record.amount = ui->amountEdit->text().toDouble();
     record.date = ui->dateEdit->date();
     record.note = ui->noteEdit->text().trimmed();
 
+    // 添加记录到数据列表
     allRecords.append(record);
     filteredRecords = allRecords;
+
+    // 刷新表格显示
     refreshTable();
+
+    // 清空输入框
     clearInputs();
+
+    // 记录操作日志
+    logOperation(
+        QString("添加收入记录: 金额 %1, 备注: %2")
+            .arg(record.amount)
+            .arg(record.note)
+        );
 }
 
-// ================= 核心功能：筛选按钮处理 =================
+// ================ 支出按钮处理 ================
+void Widget::on_expenseButton_clicked()
+{
+    // 验证输入有效性
+    if (!validateInput()) {
+        return;
+    }
+
+    // 创建新的支出记录
+    AccountRecord record;
+    record.isIncome = false;
+    record.amount = ui->amountEdit->text().toDouble();
+    record.date = ui->dateEdit->date();
+    record.note = ui->noteEdit->text().trimmed();
+
+    // 添加记录到数据列表
+    allRecords.append(record);
+    filteredRecords = allRecords;
+
+    // 刷新表格显示
+    refreshTable();
+
+    // 清空输入框
+    clearInputs();
+
+    // 记录操作日志
+    logOperation(
+        QString("添加支出记录: 金额 %1, 备注: %2")
+            .arg(record.amount)
+            .arg(record.note)
+        );
+}
+
+// ================ 筛选按钮处理 ================
 void Widget::on_filterButton_clicked()
 {
-    QDate start = ui->startDateEdit->date(); // 获取开始日期
-    QDate end = ui->endDateEdit->date();     // 获取结束日期
+    // 获取筛选日期范围
+    QDate start = ui->startDateEdit->date();
+    QDate end = ui->endDateEdit->date();
 
-    filteredRecords.clear(); // 清空筛选列表
+    // 日期有效性检查
+    if (start > end) {
+        QMessageBox::warning(
+            this,
+            "日期错误",
+            "开始日期不能晚于结束日期"
+            );
+        return;
+    }
 
-    // 遍历所有记录，筛选出日期在[start, end]之间的记录
-    for(const AccountRecord &record : allRecords){
-        if(record.date >= start && record.date <= end){
-            filteredRecords.append(record); // 添加到筛选列表
+    // 执行筛选操作
+    filteredRecords.clear();
+
+    for (const AccountRecord &record : allRecords) {
+        if (record.date >= start && record.date <= end) {
+            filteredRecords.append(record);
         }
     }
-    refreshTable(); // 刷新表格显示筛选结果
+
+    // 刷新表格显示筛选结果
+    refreshTable();
+
+    // 记录操作日志
+    logOperation(
+        QString("筛选记录: %1 至 %2, 共 %3 条记录")
+            .arg(start.toString("yyyy-MM-dd"))
+            .arg(end.toString("yyyy-MM-dd"))
+            .arg(filteredRecords.size())
+        );
 }
 
-// ================= 核心功能：刷新表格显示 =================
+// ================ 刷新表格显示 ================
 void Widget::refreshTable()
 {
-    ui->recordTable->setRowCount(0); // 清空表格所有行
+    // 清空表格
+    ui->recordTable->setRowCount(0);
 
-    double totalIncome = 0, totalExpense = 0; // 统计变量
+    // 计算总收入和总支出
+    double totalIncome = 0;
+    double totalExpense = 0;
 
-    // 遍历筛选后的记录，填充表格并计算总计
-    for(int i = 0; i < filteredRecords.size(); ++i){
+    // 填充表格数据
+    for (int i = 0; i < filteredRecords.size(); ++i) {
         const AccountRecord &record = filteredRecords[i];
 
-        // 统计收入和支出总额
-        if(record.isIncome) totalIncome += record.amount;
-        else totalExpense += record.amount;
+        // 更新统计数据
+        if (record.isIncome) {
+            totalIncome += record.amount;
+        } else {
+            totalExpense += record.amount;
+        }
 
-        // 在表格中插入新行（从0开始计数）
-        int row = ui->recordTable->rowCount(); // 获取当前行数（即新行索引）
-        ui->recordTable->insertRow(row);       // 插入空行
+        // 添加新行
+        int row = ui->recordTable->rowCount();
+        ui->recordTable->insertRow(row);
 
-        // 填充每行数据（QTableWidgetItem是表格中的单元格）
-        ui->recordTable->setItem(row, 0, new QTableWidgetItem(QString::number(row+1))); // 序号
-        ui->recordTable->setItem(row, 1, new QTableWidgetItem(record.isIncome ? "收入" : "支出")); // 类型
-        // 'f'表示固定小数点格式，2表示保留两位小数
-        ui->recordTable->setItem(row, 2, new QTableWidgetItem(QString::number(record.amount, 'f', 2))); // 金额
-        ui->recordTable->setItem(row, 3, new QTableWidgetItem(record.date.toString("yyyy-MM-dd"))); // 日期格式化为字符串
-        ui->recordTable->setItem(row, 4, new QTableWidgetItem(record.note)); // 备注
+        // 设置表格内容
+        ui->recordTable->setItem(
+            row,
+            0,
+            new QTableWidgetItem(QString::number(row + 1))
+            );
+
+        ui->recordTable->setItem(
+            row,
+            1,
+            new QTableWidgetItem(record.isIncome ? "收入" : "支出")
+            );
+
+        ui->recordTable->setItem(
+            row,
+            2,
+            new QTableWidgetItem(QString::number(record.amount, 'f', 2))
+            );
+
+        ui->recordTable->setItem(
+            row,
+            3,
+            new QTableWidgetItem(record.date.toString("yyyy-MM-dd"))
+            );
+
+        ui->recordTable->setItem(
+            row,
+            4,
+            new QTableWidgetItem(record.note)
+            );
+
+        // 设置文本颜色（收入为绿色，支出为红色）
+        QColor textColor = record.isIncome
+                               ? QColor(0, 128, 0)
+                               : QColor(200, 0, 0);
+
+        for (int col = 0; col < 5; ++col) {
+            if (ui->recordTable->item(row, col)) {
+                ui->recordTable->item(row, col)->setForeground(
+                    QBrush(textColor)
+                    );
+            }
+        }
     }
 
-    updateSummary(); // 更新底部的统计信息（总收入/支出/余额）
+    // 更新统计信息
+    updateSummary();
 }
 
-// ================= 核心功能：更新统计信息 =================
+// ================ 更新统计信息 ================
 void Widget::updateSummary()
 {
-    double totalIncome = 0, totalExpense = 0;
+    double totalIncome = 0;
+    double totalExpense = 0;
 
-    // 重新计算筛选后的总计（避免依赖缓存数据）
-    for(const AccountRecord &record : filteredRecords){
-        if(record.isIncome) totalIncome += record.amount;
-        else totalExpense += record.amount;
+    // 计算总收入和总支出
+    for (const AccountRecord &record : filteredRecords) {
+        if (record.isIncome) {
+            totalIncome += record.amount;
+        } else {
+            totalExpense += record.amount;
+        }
     }
 
-    // 更新界面上的标签文本（显示两位小数）
-    ui->totalIncomeLabel->setText(QString::number(totalIncome, 'f', 2));
-    ui->totalExpenseLabel->setText(QString::number(totalExpense, 'f', 2));
-    ui->balanceLabel->setText(QString::number(totalIncome - totalExpense, 'f', 2));
+    // 显示统计结果
+    ui->totalIncomeLabel->setText(
+        QString::number(totalIncome, 'f', 2)
+        );
+
+    ui->totalExpenseLabel->setText(
+        QString::number(totalExpense, 'f', 2)
+        );
+
+    ui->balanceLabel->setText(
+        QString::number(totalIncome - totalExpense, 'f', 2)
+        );
+
+    // 设置余额颜色（正数为绿色，负数为红色）
+    QPalette palette = ui->balanceLabel->palette();
+    palette.setColor(
+        QPalette::WindowText,
+        (totalIncome - totalExpense) >= 0 ? Qt::darkGreen : Qt::red
+        );
+
+    ui->balanceLabel->setPalette(palette);
 }
 
-// ================= 辅助功能：清空输入框 =================
+// ================ 清空输入框 ================
 void Widget::clearInputs()
 {
-    ui->amountEdit->clear();     // 清空金额输入框
-    ui->noteEdit->clear();       // 清空备注输入框
-    ui->dateEdit->setDate(QDate::currentDate()); // 恢复日期为当前日期
+    // 清空输入控件
+    ui->amountEdit->clear();
+    ui->noteEdit->clear();
+
+    // 重置日期为当前日期
+    ui->dateEdit->setDate(QDate::currentDate());
+
+    // 设置焦点到金额输入框
+    ui->amountEdit->setFocus();
 }
 
-// ================= 辅助功能：输入验证 =================
+// ================ 输入验证 ================
 bool Widget::validateInput()
 {
-    // 检查金额是否为空
-    if(ui->amountEdit->text().isEmpty()){
-        // 显示警告消息框（父窗口为this，即主窗口）
-        QMessageBox::warning(this, "输入错误", "金额不能为空");
-        return false; // 验证失败
-    }
+    // 金额为空检查
+    if (ui->amountEdit->text().isEmpty()) {
+        QMessageBox::warning(
+            this,
+            "输入错误",
+            "金额不能为空"
+            );
 
-    // 尝试将字符串转换为double
-    bool ok;
-    double amount = ui->amountEdit->text().toDouble(&ok); // ok参数接收转换是否成功
-    if(!ok || amount <= 0){ // 转换失败或金额≤0
-        QMessageBox::warning(this, "输入错误", "请输入有效的金额（>0）");
+        ui->amountEdit->setFocus();
         return false;
     }
 
-    return true; // 验证通过
+    // 金额有效性检查
+    bool ok;
+    double amount = ui->amountEdit->text().toDouble(&ok);
+
+    if (!ok || amount <= 0) {
+        QMessageBox::warning(
+            this,
+            "输入错误",
+            "请输入有效的金额（大于0的数字）"
+            );
+
+        ui->amountEdit->selectAll();
+        ui->amountEdit->setFocus();
+        return false;
+    }
+
+    // 备注长度检查
+    if (ui->noteEdit->text().length() > 100) {
+        QMessageBox::warning(
+            this,
+            "输入错误",
+            "备注长度不能超过100个字符"
+            );
+
+        ui->noteEdit->selectAll();
+        ui->noteEdit->setFocus();
+        return false;
+    }
+
+    // 日期有效性检查
+    if (ui->dateEdit->date() > QDate::currentDate()) {
+        QMessageBox::warning(
+            this,
+            "日期错误",
+            "日期不能晚于今天"
+            );
+
+        ui->dateEdit->setFocus();
+        return false;
+    }
+
+    return true;
 }
 
-// ================= 文件操作：保存数据到文件 =================
+// ================ 保存数据 ================
 void Widget::on_saveButton_clicked()
 {
-    QFile file("records.dat"); // 创建文件对象（文件名：records.dat）
-    // 以二进制写入模式打开文件（QIODevice::WriteOnly）
-    if(!file.open(QIODevice::WriteOnly)){
-        // 显示错误消息框（QMessageBox::critical用于严重错误）
-        QMessageBox::critical(this, "错误", "无法创建保存文件");
-        return;
-    }
-
-    QDataStream out(&file); // 创建数据流对象，关联到文件
-    out << allRecords;      // 使用重载的<<操作符写入所有记录（自动序列化）
-
-    file.close(); // 关闭文件（建议显式关闭，虽然析构时会自动关闭）
-    QMessageBox::information(this, "保存成功", "数据已保存到 records.dat");
+    saveToFile("records.dat");
 }
 
-// ================= 文件操作：从文件加载数据 =================
+// ================ 加载数据 ================
 void Widget::on_loadButton_clicked()
 {
-    QFile file("records.dat"); // 创建文件对象
-    // 以二进制读取模式打开文件（QIODevice::ReadOnly）
-    if(!file.open(QIODevice::ReadOnly)){
-        QMessageBox::critical(this, "错误", "找不到数据文件（records.dat）");
+    loadFromFile("records.dat");
+}
+
+// ================ 扩展功能：导出为CSV ================
+void Widget::on_exportButton_clicked()
+{
+    // 打开文件对话框选择保存位置
+    QString fileName = QFileDialog::getSaveFileName(
+        this,
+        "导出CSV文件",
+        "",
+        "CSV文件 (*.csv)"
+        );
+
+    if (fileName.isEmpty()) {
         return;
     }
 
-    QDataStream in(&file); // 创建数据流对象，关联到文件
-    in >> allRecords;      // 使用重载的>>操作符读取所有记录（自动反序列化）
+    // 创建并写入CSV文件
+    QFile file(fileName);
 
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        QMessageBox::critical(
+            this,
+            "错误",
+            "无法创建CSV文件"
+            );
+        return;
+    }
+
+    // 写入CSV表头
+    QTextStream out(&file);
+    out << "类型,金额,日期,备注\n";
+
+    // 写入所有记录
+    for (const AccountRecord &record : allRecords) {
+        out << (record.isIncome ? "收入" : "支出") << ","
+            << QString::number(record.amount, 'f', 2) << ","
+            << record.date.toString("yyyy-MM-dd") << ","
+            << record.note << "\n";
+    }
+
+    // 关闭文件
     file.close();
-    filteredRecords = allRecords; // 加载后显示全部记录
-    refreshTable(); // 刷新表格
-    // 使用QString的arg()函数动态填充消息文本
-    QMessageBox::information(this, "加载成功",
-                             QString("已加载%1条记录").arg(allRecords.size())
-                             );
+
+    // 显示成功消息
+    QMessageBox::information(
+        this,
+        "导出成功",
+        "数据已导出为CSV格式"
+        );
+
+    // 记录操作日志
+    logOperation(
+        QString("导出CSV文件: %1").arg(fileName)
+        );
+}
+
+// ================ 辅助功能：通用文件保存 ================
+void Widget::saveToFile(const QString &fileName)
+{
+    // 打开文件
+    QFile file(fileName);
+
+    if (!file.open(QIODevice::WriteOnly)) {
+        QMessageBox::critical(
+            this,
+            "错误",
+            QString("无法创建文件: %1").arg(fileName)
+            );
+        return;
+    }
+
+    // 使用数据流写入数据
+    QDataStream out(&file);
+    out << allRecords;
+
+    // 关闭文件
+    file.close();
+
+    // 显示成功消息
+    QMessageBox::information(
+        this,
+        "保存成功",
+        QString("数据已保存到 %1").arg(fileName)
+        );
+
+    // 记录操作日志
+    logOperation(
+        QString("保存数据到: %1").arg(fileName)
+        );
+}
+
+// ================ 辅助功能：通用文件加载 ================
+void Widget::loadFromFile(const QString &fileName)
+{
+    // 打开文件
+    QFile file(fileName);
+
+    if (!file.open(QIODevice::ReadOnly)) {
+        QMessageBox::critical(
+            this,
+            "错误",
+            QString("找不到数据文件: %1").arg(fileName)
+            );
+        return;
+    }
+
+    // 使用数据流读取数据
+    QDataStream in(&file);
+    in >> allRecords;
+
+    // 关闭文件
+    file.close();
+
+    // 更新筛选记录并刷新表格
+    filteredRecords = allRecords;
+    refreshTable();
+
+    // 显示成功消息
+    QMessageBox::information(
+        this,
+        "加载成功",
+        QString("已加载 %1 条记录").arg(allRecords.size())
+        );
+
+    // 记录操作日志
+    logOperation(
+        QString("从文件加载数据: %1").arg(fileName)
+        );
+}
+
+// ================ 扩展功能：记录删除 ================
+void Widget::deleteRecord(int row)
+{
+    // 检查行索引有效性
+    if (row < 0 || row >= filteredRecords.size()) {
+        return;
+    }
+
+    // 获取要删除的记录
+    AccountRecord record = filteredRecords[row];
+
+    // 确认对话框
+    QMessageBox::StandardButton reply;
+    reply = QMessageBox::question(
+        this,
+        "确认删除",
+        QString("确定要删除该记录吗?\n金额: %1\n日期: %2\n备注: %3")
+            .arg(record.amount)
+            .arg(record.date.toString("yyyy-MM-dd"))
+            .arg(record.note),
+        QMessageBox::Yes | QMessageBox::No
+        );
+
+    if (reply == QMessageBox::Yes) {
+        // 从所有记录中删除 - 通过内容匹配而非索引
+        for (int i = 0; i < allRecords.size(); ++i) {
+            if (allRecords[i].date == record.date &&
+                allRecords[i].amount == record.amount &&
+                allRecords[i].note == record.note) {
+                allRecords.removeAt(i);
+                break;
+            }
+        }
+
+        // 从筛选记录中删除
+        filteredRecords.removeAt(row);
+
+        // 刷新表格
+        refreshTable();
+
+        // 记录操作日志
+        logOperation(
+            QString("删除记录: 金额 %1, 日期 %2, 备注: %3")
+                .arg(record.amount)
+                .arg(record.date.toString("yyyy-MM-dd"))
+                .arg(record.note)
+            );
+    }
+}
+
+// ================ 扩展功能：记录编辑 ================
+void Widget::editRecord(int row)
+{
+    // 检查行索引有效性
+    if (row < 0 || row >= filteredRecords.size()) {
+        return;
+    }
+
+    // 获取要编辑的记录
+    AccountRecord record = filteredRecords[row];
+
+    // 创建编辑对话框
+    bool ok;
+    QString newNote = QInputDialog::getText(
+        this,
+        "编辑备注",
+        "请输入新的备注:",
+        QLineEdit::Normal,
+        record.note,
+        &ok
+        );
+
+    if (ok && !newNote.isEmpty()) {
+        // 更新所有记录中的备注 - 通过内容匹配而非索引
+        for (int i = 0; i < allRecords.size(); ++i) {
+            if (allRecords[i].date == record.date &&
+                allRecords[i].amount == record.amount &&
+                allRecords[i].note == record.note) {
+                allRecords[i].note = newNote;
+                break;
+            }
+        }
+
+        // 更新筛选记录中的备注
+        filteredRecords[row].note = newNote;
+
+        // 刷新表格
+        refreshTable();
+
+        // 记录操作日志
+        logOperation(
+            QString("编辑记录: 原备注 [%1] 改为 [%2]")
+                .arg(record.note, newNote)
+            );
+    }
+}
+
+// ================ 扩展功能：右键菜单 ================
+void Widget::showRecordContextMenu(const QPoint &pos)
+{
+    // 获取鼠标点击位置的表格索引
+    QTableWidget *table = ui->recordTable;
+    QModelIndex index = table->indexAt(pos);
+
+    if (!index.isValid()) {
+        return;
+    }
+
+    // 创建右键菜单
+    QMenu menu(this);
+    QAction *editAction = menu.addAction("编辑备注");
+    QAction *deleteAction = menu.addAction("删除记录");
+
+    // 显示菜单并获取用户选择
+    QAction *selectedAction = menu.exec(
+        table->viewport()->mapToGlobal(pos)
+        );
+
+    // 处理菜单项选择
+    if (selectedAction == deleteAction) {
+        deleteRecord(index.row());
+    }
+    else if (selectedAction == editAction) {
+        editRecord(index.row());
+    }
+}
+
+
+
+
+
+
+// ================ 扩展功能：分类统计 ================
+void Widget::showCategoryStats()
+{
+    // 按备注分类统计收支情况
+    QMap<QString, double> incomeCategories;
+    QMap<QString, double> expenseCategories;
+
+    for (const AccountRecord &record : allRecords) {
+        if (record.isIncome) {
+            incomeCategories[record.note] += record.amount;
+        } else {
+            expenseCategories[record.note] += record.amount;
+        }
+    }
+
+    // 构建统计结果字符串
+    QString stats = "===== 收入分类统计 =====\n";
+
+    for (auto it = incomeCategories.begin(); it != incomeCategories.end(); ++it) {
+        stats += QString("%1: %2\n")
+        .arg(it.key())
+            .arg(it.value(), 0, 'f', 2);
+    }
+
+    stats += "\n===== 支出分类统计 =====\n";
+
+    for (auto it = expenseCategories.begin(); it != expenseCategories.end(); ++it) {
+        stats += QString("%1: %2\n")
+        .arg(it.key())
+            .arg(it.value(), 0, 'f', 2);
+    }
+
+    // 显示统计结果对话框
+    QMessageBox::information(
+        this,
+        "分类统计",
+        stats
+        );
+
+    // 记录操作日志
+    logOperation("生成分类统计报表");
+}
+
+// ================ 扩展功能：窗口关闭事件 ================
+void Widget::closeEvent(QCloseEvent *event)
+{
+    // 显示确认对话框
+    QMessageBox::StandardButton reply;
+    reply = QMessageBox::question(
+        this,
+        "确认退出",
+        "确定要退出程序吗?",
+        QMessageBox::Yes | QMessageBox::No
+        );
+
+    if (reply == QMessageBox::Yes) {
+        // 保存自动备份
+        createAutoBackup();
+
+        // 接受关闭事件
+        event->accept();
+    } else {
+        // 忽略关闭事件
+        event->ignore();
+    }
+}
+
+// ================ 辅助功能：数据完整性检查 ================
+bool Widget::checkDataIntegrity()
+{
+    // 检查记录数据的完整性
+    if (allRecords.isEmpty()) {
+        qDebug() << "数据完整性检查: 无记录";
+        return true;
+    }
+
+    int errors = 0;
+
+    for (const AccountRecord &record : allRecords) {
+        if (record.amount <= 0) {
+            qWarning() << "无效金额记录:" << record.amount;
+            errors++;
+        }
+
+        if (record.date.isNull() || !record.date.isValid()) {
+            qWarning() << "无效日期记录:" << record.date;
+            errors++;
+        }
+    }
+
+    if (errors > 0) {
+        qCritical() << "发现" << errors << "个数据完整性问题";
+        return false;
+    }
+
+    qDebug() << "数据完整性检查通过";
+    return true;
+}
+
+// ================ 辅助功能：数据压缩 ================
+void Widget::compressData()
+{
+    // 合并相同日期和备注的记录
+    QList<AccountRecord> compressed;
+
+    for (const AccountRecord &record : allRecords) {
+        bool found = false;
+
+        for (AccountRecord &comp : compressed) {
+            if (comp.date == record.date &&
+                comp.note == record.note &&
+                comp.isIncome == record.isIncome) {
+                comp.amount += record.amount;
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            compressed.append(record);
+        }
+    }
+
+    // 更新记录并刷新显示
+    if (compressed.size() < allRecords.size()) {
+        allRecords = compressed;
+        filteredRecords = allRecords;
+        refreshTable();
+
+        QMessageBox::information(
+            this,
+            "数据压缩",
+            QString("压缩了 %1 条重复记录").arg(allRecords.size() - compressed.size())
+            );
+    } else {
+        QMessageBox::information(
+            this,
+            "数据压缩",
+            "未找到可压缩的重复记录"
+            );
+    }
+}
+
+// ================ 扩展功能：金额格式化 ================
+QString Widget::formatCurrency(double amount)
+{
+    // 格式化金额为货币形式
+    return QString("¥%1").arg(
+        QString::number(amount, 'f', 2)
+        );
+}
+
+// ================ 扩展功能：数据恢复 ================
+void Widget::restoreBackup()
+{
+    // 确认对话框
+    QMessageBox::StandardButton reply;
+    reply = QMessageBox::question(
+        this,
+        "恢复备份",
+        "确定要恢复最近一次备份吗?\n当前数据将会丢失",
+        QMessageBox::Yes | QMessageBox::No
+        );
+
+    if (reply == QMessageBox::Yes) {
+        // 从自动备份加载数据
+        loadFromFile("autobackup.dat");
+    }
+}
+
+// ================ 分类统计按钮处理 ================
+void Widget::on_categoryStatsButton_clicked()
+{
+    showCategoryStats();
+}
+
+// ================ 数据压缩按钮处理 ================
+void Widget::on_compressButton_clicked()
+{
+    compressData();
+}
+
+// ================ 恢复备份按钮处理 ================
+void Widget::on_restoreButton_clicked()
+{
+    restoreBackup();
 }

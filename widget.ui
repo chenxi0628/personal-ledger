@@ -253,7 +253,7 @@
         </layout>
        </item>
        <item>
-        <layout class="QHBoxLayout" name="horizontalLayout_6">
+        <layout class="QVBoxLayout" name="verticalLayout_2">
          <property name="spacing">
           <number>5</number>
          </property>
@@ -274,6 +274,34 @@
           <widget class="QPushButton" name="loadButton">
            <property name="text">
             <string>加载数据</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="exportButton">
+           <property name="text">
+            <string>导出数据</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="categoryStatsButton">
+           <property name="text">
+            <string>分类统计</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="compressButton">
+           <property name="text">
+            <string>压缩数据</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="restoreButton">
+           <property name="text">
+            <string>恢复备份</string>
            </property>
           </widget>
          </item>

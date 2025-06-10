@@ -54,6 +54,24 @@ void Widget::loadAutoBackup()
     }
 }
 
+// 自动备份创建函数实现
+void Widget::createAutoBackup()
+{
+    // 如果没有记录则不备份
+    if (allRecords.isEmpty()) {
+        return;
+    }
+
+    // 创建自动备份文件
+    QFile file("autobackup.dat");
+
+    if (file.open(QIODevice::WriteOnly)) {
+        QDataStream out(&file);
+        out << allRecords;
+        file.close();
+    }
+}
+
 // 构造函数实现
 Widget::Widget(QWidget *parent)
     : QWidget(parent)
@@ -136,23 +154,7 @@ Widget::Widget(QWidget *parent)
     loadAutoBackup();
 }
 
-// 自动备份创建函数实现
-void Widget::createAutoBackup()
-{
-    // 如果没有记录则不备份
-    if (allRecords.isEmpty()) {
-        return;
-    }
 
-    // 创建自动备份文件
-    QFile file("autobackup.dat");
-
-    if (file.open(QIODevice::WriteOnly)) {
-        QDataStream out(&file);
-        out << allRecords;
-        file.close();
-    }
-}
 
 // 析构函数实现（添加自动备份）
 Widget::~Widget()

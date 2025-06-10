@@ -276,20 +276,10 @@ void Widget::refreshTable()
     // 清空表格
     ui->recordTable->setRowCount(0);
 
-    // 计算总收入和总支出
-    double totalIncome = 0;
-    double totalExpense = 0;
-
     // 填充表格数据
     for (int i = 0; i < filteredRecords.size(); ++i) {
         const AccountRecord &record = filteredRecords[i];
 
-        // 更新统计数据
-        if (record.isIncome) {
-            totalIncome += record.amount;
-        } else {
-            totalExpense += record.amount;
-        }
 
         // 添加新行
         int row = ui->recordTable->rowCount();

@@ -498,12 +498,12 @@ void Widget::on_exportButton_clicked()
     QTextStream out(&file);
     out << "类型,金额,日期,备注\n";
 
-    // 写入所有记录
-    for (const AccountRecord &record : allRecords) {
+    // 写入当前显示的所有记录 (使用filteredRecords)
+    for (const AccountRecord &record : filteredRecords) {
         out << (record.isIncome ? "收入" : "支出") << ","
             << QString::number(record.amount, 'f', 2) << ","
             << record.date.toString("yyyy-MM-dd") << ","
-            << record.note << "\n";
+            << "\"" << record.note << "\"" << "\n"; // 用双引号包裹备注
     }
 
     // 关闭文件

@@ -149,6 +149,14 @@ Widget::Widget(QWidget *parent)
             logOperation("清除筛选条件，显示全部记录");
         }
         );
+    // 添加数据完整性检查
+    if (!checkDataIntegrity()) {
+        QMessageBox::warning(
+            this,
+            "数据问题",
+            "发现无效数据，请检查数据文件"
+            );
+    }
 
     // 程序启动时加载自动备份数据
     loadAutoBackup();
@@ -872,14 +880,6 @@ void Widget::compressData()
     }
 }
 
-// ================ 扩展功能：金额格式化 ================
-QString Widget::formatCurrency(double amount)
-{
-    // 格式化金额为货币形式
-    return QString("¥%1").arg(
-        QString::number(amount, 'f', 2)
-        );
-}
 
 // ================ 扩展功能：数据恢复 ================
 void Widget::restoreBackup()

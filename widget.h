@@ -89,7 +89,6 @@ private:
 
     // 数据管理功能
     void compressData(); // 数据压缩函数
-    QString formatCurrency(double amount); // 金额格式化函数
     void restoreBackup(); // 恢复备份功能
 
 };
